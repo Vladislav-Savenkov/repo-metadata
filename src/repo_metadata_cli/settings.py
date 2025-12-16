@@ -35,9 +35,17 @@ class TreeSitterSettings:
 
 
 @dataclass
+class TokensSettings:
+    tokenizer_id: Optional[str] = None
+    parallelism: Optional[bool] = None
+    max_length: Optional[int] = None
+
+
+@dataclass
 class AppSettings:
     files: FilesSettings = field(default_factory=FilesSettings)
     tree_sitter: TreeSitterSettings = field(default_factory=TreeSitterSettings)
+    tokens: TokensSettings = field(default_factory=TokensSettings)
 
 
 def _parse_list(raw) -> Optional[List[str]]:
@@ -85,6 +93,7 @@ def load_app_settings(config_file: Optional[Path]) -> AppSettings:
     cfg_path = resolve_config_path(config_file)
     files_settings = FilesSettings()
     tree_sitter_settings = TreeSitterSettings()
+    tokens_settings = TokensSettings()
 
     if cfg_path.exists():
         try:
@@ -95,9 +104,9 @@ def load_app_settings(config_file: Optional[Path]) -> AppSettings:
             data = {}
     else:
         data = {}
-    
     files_data = data.get("files", {}) if isinstance(data, dict) else {}
     ts_data = data.get("tree_sitter", {}) if isinstance(data, dict) else {}
+    tokens_data = data.get("tokens", {}) if isinstance(data, dict) else {}
 
     # Files
     allowed_ext = files_data.get("allowed_extensions")
@@ -153,7 +162,24 @@ def load_app_settings(config_file: Optional[Path]) -> AppSettings:
     if language_repo_map:
         tree_sitter_settings.language_repo_map = language_repo_map
 
-    return AppSettings(files=files_settings, tree_sitter=tree_sitter_settings)
+    # Tokens
+    tok_id = tokens_data.get("tokenizer_id")
+    if isinstance(tok_id, str) and tok_id.strip():
+        tokens_settings.tokenizer_id = tok_id.strip()
+
+    tok_parallel = tokens_data.get("parallelism")
+    if isinstance(tok_parallel, bool):
+        tokens_settings.parallelism = tok_parallel
+
+    tok_max_len = tokens_data.get("max_length")
+    if isinstance(tok_max_len, int) and tok_max_len > 0:
+        tokens_settings.max_length = tok_max_len
+
+    return AppSettings(
+        files=files_settings,
+        tree_sitter=tree_sitter_settings,
+        tokens=tokens_settings,
+    )
 
 
 def resolve_config_path(config_file: Optional[Path]) -> Path:

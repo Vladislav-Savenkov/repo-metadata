@@ -26,6 +26,8 @@ def _build_analyzer(
     ts_config: TreeSitterConfig,
     skip_tree_sitter: bool,
     tokenizer_id: Optional[str],
+    tokenizers_parallelism: Optional[bool],
+    tokenizers_max_length: Optional[int],
 ) -> RepoAnalyzer:
     allowed_files = AllowedFiles(
         AllowedFilesConfig(
@@ -37,7 +39,15 @@ def _build_analyzer(
         ts_manager = TreeSitterManager(
             ts_config,
         )
-    tokenizer_provider = TokenizerProvider(tokenizer_id) if tokenizer_id else None
+    tokenizer_provider = (
+        TokenizerProvider(
+            tokenizer_id,
+            parallelism=tokenizers_parallelism,
+            model_max_length=tokenizers_max_length,
+        )
+        if tokenizer_id
+        else None
+    )
     return RepoAnalyzer(
         allowed_files=allowed_files,
         tree_sitter=ts_manager,
@@ -79,6 +89,8 @@ def metadata(
         ts_config=ts_config,
         skip_tree_sitter=skip_tree_sitter,
         tokenizer_id=None,
+        tokenizers_parallelism=None,
+        tokenizers_max_length=None,
     )
     analyzer.run_metadata_pipeline(dataset_dir, output_csv)
 
@@ -89,8 +101,8 @@ def tokens(
     output_csv: Path = typer.Option(Path("repo_tokens.csv"), help="Where to store token stats CSV."),
     config_file: Path = typer.Option(Path("repo_metadata.toml"), help="TOML config file path."),
     tokenizer_id: Optional[str] = typer.Option(
-        DEFAULT_TOKENIZER_ID,
-        help="HF tokenizer id to use. Defaults to $TOKENIZER_ID or the config default.",
+        None,
+        help="HF tokenizer id to use. Defaults to [tokens.tokenizer_id] in TOML, then $TOKENIZER_ID.",
     ),
 ) -> None:
     """Compute token statistics for all bundles in a dataset directory."""
@@ -100,11 +112,14 @@ def tokens(
         lang_func_node_types=settings.tree_sitter.lang_func_node_types,
         language_packages=settings.tree_sitter.language_packages,
     )
+    effective_tokenizer_id = tokenizer_id or settings.tokens.tokenizer_id or DEFAULT_TOKENIZER_ID
     analyzer = _build_analyzer(
         config_file=config_file,
         ts_config=ts_config,
         skip_tree_sitter=True,  # Tree-sitter not required for token counting.
-        tokenizer_id=tokenizer_id,
+        tokenizer_id=effective_tokenizer_id,
+        tokenizers_parallelism=settings.tokens.parallelism,
+        tokenizers_max_length=settings.tokens.max_length,
     )
     analyzer.run_tokens_pipeline(dataset_dir, output_csv)
 
