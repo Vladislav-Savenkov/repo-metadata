@@ -348,3 +348,11 @@ flow = [
 json = []
 
 [tree_sitter.language_repo_map]
+
+[tokens]
+# Optional defaults for token counting (used by `repo-metadata tokens`).
+tokenizer_id = "deepseek-ai/deepseek-coder-6.7b-base"
+# Disable/enable HF tokenizers parallelism to avoid fork warnings.
+parallelism = true
+# Override tokenizer.model_max_length to suppress long-sequence warnings during token counting.
+max_length = 9999999999
