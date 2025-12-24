@@ -247,13 +247,21 @@ def compute_duplication_stats(
     return stats
 
 
-def get_cloc_stats(repo_dir: Path) -> Tuple[Dict[str, Any], Dict[str, Dict[str, Any]]]:
+def get_cloc_stats(
+    repo_dir: Path, include_languages: List[str] | None = None
+) -> Tuple[Dict[str, Any], Dict[str, Dict[str, Any]]]:
     """
     Run ``cloc --json`` against the current repository state.
     Returns (summary, langs) where summary = SUM, langs = {lang: stats}.
     """
     # --quiet подавляет прогресс-строки, но cloc всё равно может писать предупреждения в stdout.
-    cloc_out = run_cmd(["cloc", "--json", "--quiet", str(repo_dir)])
+    cmd = ["cloc", "--json", "--quiet", str(repo_dir)]
+    if include_languages:
+        langs_arg = ",".join(sorted({lang for lang in include_languages if lang}))
+        if langs_arg:
+            cmd.insert(-1, f"--include-lang={langs_arg}")
+
+    cloc_out = run_cmd(cmd)
     if not cloc_out:
         return {}, {}
 

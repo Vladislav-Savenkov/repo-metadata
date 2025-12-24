@@ -83,6 +83,7 @@ class RepoAnalyzer:
     tokenizer_provider: Optional[TokenizerProvider] = field(
         default_factory=lambda: TokenizerProvider(DEFAULT_TOKENIZER_ID)
     )
+    cloc_languages: Optional[List[str]] = None
 
     def _clone_bundle(self, bundle_path: Path, dest_dir: Path) -> Optional[Path]:
         repo_dir = dest_dir / bundle_path.stem
@@ -158,6 +159,7 @@ class RepoAnalyzer:
             "repo_worktree_mb": 0.0,
             "files": 0,
             "loc": 0,
+            "raw_loc": 0,
             "avg_func_length": 0.0,
             "docstring_ratio": 0.0,
             "duplication_ratio": 0.0,
@@ -204,7 +206,13 @@ class RepoAnalyzer:
             data["license_type"] = detect_license(repo_dir)
             data["documentation_cnt"] = compute_readme_stats(repo_dir)
 
-            summary, langs = get_cloc_stats(repo_dir)
+            raw_summary, _ = get_cloc_stats(repo_dir)
+            if raw_summary:
+                raw_code = raw_summary.get("code", 0)
+                raw_comment = raw_summary.get("comment", 0)
+                data["raw_loc"] = int(raw_code) + int(raw_comment)
+
+            summary, langs = get_cloc_stats(repo_dir, self.cloc_languages)
             if summary:
                 n_files = summary.get("nFiles", 0)
                 code = summary.get("code", 0)

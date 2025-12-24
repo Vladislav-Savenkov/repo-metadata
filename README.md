@@ -5,7 +5,8 @@ A command-line utility for extracting repository metadata from Git bundle files.
 ## Capabilities
 - Processes full datasets of `*.bundle` files in a single pass.
 - History metrics: creation date, counts of commits and branches, sizes of `.git` and the working tree.
-- Code quality: `cloc` counts (files, code/comment lines), language distribution, duplication ratio, average function length via Tree-sitter, README volume.
+- Code quality: `cloc` counts (files, code/comment lines, optionally filtered languages), language distribution, duplication ratio, average function length via Tree-sitter, README volume.
+  - `raw_loc`: total code + comment lines across all languages (unfiltered cloc); `loc` respects `include_languages`/`--include-lang` when provided.
 - License discovery: fast detection via LICENSE/COPYING files.
 - Tokenization: tokens for the latest commit and snapshot of the branch with the most recent commit (HuggingFace tokenizer).
 - Configuration is entirely TOML-based; no hard-coded language lists.
@@ -32,6 +33,7 @@ All settings reside in a TOML file (default: `repo_metadata.toml` in the working
 - `[files]`
   - `allowed_extensions`: list of extensions treated as code. If omitted, `tree_sitter.extension_language_map` keys are used.
   - `allowed_filenames`: extensionless filenames that are always included (e.g., Makefile, Dockerfile).
+  - `include_languages`: optional list of language names to pass to cloc (`--include-lang`). When set, LOC and language distribution are computed only for these languages (overridable via `--include-lang` CLI flag).
 - `[tree_sitter]`
   - `language_packages`: Python packages with grammars installable via `fetch-grammars`.
   - `extension_language_map`: mapping from file extension to language (keys normalized to lowercase with a dot).
@@ -53,6 +55,7 @@ uv run repo-metadata metadata /path/to/dataset \
 ```
 - Scans all `*.bundle` files under `dataset_dir`, clones each into a temporary directory, computes metrics, and appends them to the CSV.
 - Working tree metrics (cloc, duplication, avg_func_length, README, language distribution) are computed on the branch that contains the most recent commit (that branch is checked out before measurement).
+- Use `--include-lang=Python,TypeScript` to restrict cloc/LOC to those languages (overrides `[files].include_languages`).
 - The `--skip-tree-sitter` flag disables average function length computation.
 
 ### Tokens
@@ -91,7 +94,8 @@ uv run repo-metadata merge repo_metadata.csv repo_tokens.csv \
 | repo_bundle_mb | float | Size of the bundle file in MB. | 512.3 |
 | repo_worktree_mb | float | Size of the working tree excluding `.git` (MB). | 92.5 |
 | files | integer | File count from cloc (`SUM.nFiles`). | 1287 |
-| loc | integer | Code plus comment lines from cloc (non-empty). | 442915 |
+| loc | integer | Code plus comment lines from cloc (non-empty), filtered by `include_languages`/`--include-lang` if provided. | 442915 |
+| raw_loc | integer | Code plus comment lines from cloc without language filters. | 512000 |
 | avg_func_length | float | Average function length via Tree-sitter; 0 if grammars are unavailable. | 12.4 |
 | docstring_ratio | float | Ratio of comment lines to code lines (`comment/code`). | 0.18 |
 | duplication_ratio | float | Duplication estimate: `1 - unique_lines/total_lines` (0-1). | 0.27 |
@@ -123,7 +127,7 @@ Populates `files.allowed_extensions` based on `tree_sitter.extension_language_ma
   - Measure sizes: bundle, `.git`, working tree (on that branch).
   - Detect the license from LICENSE/COPYING files.
   - Count README lines in the repository root.
-  - Run `cloc --json` for file and line counts and language distribution.
+  - Run `cloc --json` twice: once unfiltered for `raw_loc`, and once optionally filtered via include_languages/`--include-lang` for `loc` and language distribution.
   - Compute average function length via Tree-sitter on allowed files only.
   - Compute duplication as unique-line share.
 - For tokens:
