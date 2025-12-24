@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 class FilesSettings:
     allowed_extensions: Optional[Set[str]] = None
     allowed_filenames: Optional[Set[str]] = None
+    include_languages: Optional[List[str]] = None
 
 
 @dataclass
@@ -123,6 +124,12 @@ def load_app_settings(config_file: Optional[Path]) -> AppSettings:
     else:
         # Fallback to common build filenames when not specified.
         files_settings.allowed_filenames = {"Makefile", "Dockerfile", "docker-compose.yml", "CMakeLists.txt"}
+
+    include_langs = files_data.get("include_languages")
+    if isinstance(include_langs, list):
+        files_settings.include_languages = [
+            str(lang).strip() for lang in include_langs if str(lang).strip()
+        ]
 
     # Tree-sitter
     grammar_repos = _parse_list(ts_data.get("grammar_repos"))

@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import subprocess
 from pathlib import Path
-from typing import Dict, Optional, Set
+from typing import Dict, List, Optional, Set
 
 import typer
 
@@ -28,6 +28,7 @@ def _build_analyzer(
     tokenizer_id: Optional[str],
     tokenizers_parallelism: Optional[bool],
     tokenizers_max_length: Optional[int],
+    cloc_languages: Optional[List[str]],
 ) -> RepoAnalyzer:
     allowed_files = AllowedFiles(
         AllowedFilesConfig(
@@ -52,6 +53,7 @@ def _build_analyzer(
         allowed_files=allowed_files,
         tree_sitter=ts_manager,
         tokenizer_provider=tokenizer_provider,
+        cloc_languages=cloc_languages,
     )
 
 
@@ -76,6 +78,11 @@ def metadata(
     output_csv: Path = typer.Option(Path("repo_metadata.csv"), help="Where to store metadata CSV."),
     config_file: Path = typer.Option(Path("repo_metadata.toml"), help="TOML config file path."),
     skip_tree_sitter: bool = typer.Option(False, help="Skip Tree-sitter metrics (avg function length)."),
+    include_lang: Optional[str] = typer.Option(
+        None,
+        "--include-lang",
+        help="Comma-separated list of languages to pass to cloc; overrides [files].include_languages.",
+    ),
 ) -> None:
     """Compute metadata (no token counts) for all bundles in a dataset directory."""
     settings = load_app_settings(config_file)
@@ -84,6 +91,10 @@ def metadata(
         lang_func_node_types=settings.tree_sitter.lang_func_node_types,
         language_packages=settings.tree_sitter.language_packages,
     )
+    cli_langs = (
+        [part.strip() for part in include_lang.split(",") if part.strip()] if include_lang else None
+    )
+    cloc_languages = cli_langs or settings.files.include_languages
     analyzer = _build_analyzer(
         config_file=config_file,
         ts_config=ts_config,
@@ -91,6 +102,7 @@ def metadata(
         tokenizer_id=None,
         tokenizers_parallelism=None,
         tokenizers_max_length=None,
+        cloc_languages=cloc_languages,
     )
     analyzer.run_metadata_pipeline(dataset_dir, output_csv)
 
@@ -120,6 +132,7 @@ def tokens(
         tokenizer_id=effective_tokenizer_id,
         tokenizers_parallelism=settings.tokens.parallelism,
         tokenizers_max_length=settings.tokens.max_length,
+        cloc_languages=settings.files.include_languages,
     )
     analyzer.run_tokens_pipeline(dataset_dir, output_csv)
 
