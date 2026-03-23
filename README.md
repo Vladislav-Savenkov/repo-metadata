@@ -2,10 +2,15 @@
 
 A command-line utility for extracting repository metadata from Git bundle files. It is designed for dataset curation and code quality assessment: it identifies licenses, characterizes the technology stack, quantifies history and language distribution, measures documentation and duplication, estimates average function length via Tree-sitter, and optionally performs tokenization for the branch that contains the most recent commit (diff and snapshot).
 
+The `metadata` command accepts two input types:
+- **Bundle directory** — point it at a directory of pre-existing `*.bundle` files.
+- **Repository list** — provide a `.txt` file with one repository URL per line; the tool mirrors each repository, creates bundle files, and immediately computes metadata.
+
 ## Capabilities
+- Fetches remote repositories and creates `*.bundle` files from a plain-text URL list (supports public and private repos via token) — or works with a pre-built bundle directory.
 - Processes full datasets of `*.bundle` files in a single pass.
 - History metrics: creation date, counts of commits and branches, sizes of `.git` and the working tree.
-- Code quality: `cloc` counts (files, code/comment lines, optionally filtered languages), language distribution, duplication ratio, average function length via Tree-sitter, README volume.
+- Code quality: `cloc` counts (files, code/comment lines, optionally filtered languages), language and extension distributions, duplication ratio, average function length via Tree-sitter, README volume.
   - `raw_loc`: total code + comment lines across all languages (unfiltered cloc); `loc` respects `include_languages`/`--include-lang` when provided.
 - License discovery: fast detection via LICENSE/COPYING files.
 - Tokenization: tokens for the latest commit and snapshot of the branch with the most recent commit (HuggingFace tokenizer).
@@ -14,7 +19,7 @@ A command-line utility for extracting repository metadata from Git bundle files.
 ## Requirements
 - Python 3.10+
 - [uv](https://github.com/astral-sh/uv) as the environment and dependency manager
-- Utilities: `git`, `cloc`
+- Utilities: `git`, `cloc`, `bash` (required only for `from-repos`)
 - Optional: internet access to download tokenizers and grammars
 
 ## Installation via uv
@@ -48,15 +53,53 @@ All settings reside in a TOML file (default: `repo_metadata.toml` in the working
 All commands accept `--config-file` (path to TOML) and `--log-level` for logging control.
 
 ### Metadata (no tokens)
+
+**From a bundle directory:**
 ```bash
 uv run repo-metadata metadata /path/to/dataset \
   --output-csv repo_metadata.csv \
   --config-file repo_metadata.toml
 ```
-- Scans all `*.bundle` files under `dataset_dir`, clones each into a temporary directory, computes metrics, and appends them to the CSV.
-- Working tree metrics (cloc, duplication, avg_func_length, README, language distribution) are computed on the branch that contains the most recent commit (that branch is checked out before measurement).
+
+**From a repository list (fetch + analyze in one step):**
+```bash
+uv run repo-metadata metadata repos.txt \
+  --output-csv repo_metadata.csv \
+  --config-file repo_metadata.toml
+```
+
+- When `dataset_path` is a directory, scans all `*.bundle` files inside it.
+- When `dataset_path` is a `.txt` file, mirrors each repository URL, creates bundle files, and then runs the analysis. Lines beginning with `#` and blank lines are ignored.
+- Working tree metrics (cloc, duplication, avg_func_length, README, language distribution) are computed on the branch that contains the most recent commit.
 - Use `--include-lang=Python,TypeScript` to restrict cloc/LOC to those languages (overrides `[files].include_languages`).
 - The `--skip-tree-sitter` flag disables average function length computation.
+
+**Options for `.txt` mode:**
+| Option | Default | Description |
+| --- | --- | --- |
+| `--bundles-dir` | `./tmp/bundles` | Where to write fetched `*.bundle` files. |
+| `--mirrors-dir` | `./tmp/mirrors` | Where to keep bare-mirror clones. |
+| `--ok-file` | `./tmp/fetched_repos.txt` | File that records successfully fetched URLs. |
+| `--gitlab-token` / `$GITLAB_TOKEN` | — | Personal access token for private repositories. |
+
+**Example `repos.txt`:**
+```
+# public repos
+https://github.com/org/repo-a.git
+https://github.com/org/repo-b.git
+
+# private repo (requires GITLAB_TOKEN)
+https://gitlab.com/company/private-repo.git
+```
+
+**Private repositories:**
+```bash
+# via flag
+uv run repo-metadata metadata repos.txt --gitlab-token glpat-xxxxxxxxxxxx
+
+# via environment variable
+GITLAB_TOKEN=glpat-xxxxxxxxxxxx uv run repo-metadata metadata repos.txt
+```
 
 ### Tokens
 ```bash
@@ -84,6 +127,7 @@ uv run repo-metadata merge repo_metadata.csv repo_tokens.csv \
 | repo_id | string (UUID) | Primary key; randomly generated per repository during metadata extraction. | c2f9d1e8-9a41-4f72-9a8b-1f0f4f12e6a3 |
 | repo_name | string | Repository name (bundle stem); used as the key for `merge`. | openai/gym |
 | languages | stringified JSON | Language distribution by share of LoC; JSON of the form `{lang: share}`. | {"Python":0.72,"C++":0.18} |
+| extensions | stringified JSON | Extension distribution by share of LoC (after `include_languages`/`--include-lang` filters); JSON of the form `{ext: share}`. | {".py":0.82,".ts":0.18} |
 | stack | string | Human-readable top 3 languages with percentages. | Python (72%), C++ (18%), C (6%) |
 | license_type | enum | Detected root license: MIT, APACHE-2.0, GPL, GPL-3.0, BSD, MPL-2.0, UNLICENSE, UNKNOWN. | MIT |
 | created_at | timestamp (git) | Timestamp of the first commit (`git log --reverse --max-count=1`). | 2020-03-18 14:22:11 +0000 |
@@ -120,6 +164,13 @@ Populates `files.allowed_extensions` based on `tree_sitter.extension_language_ma
 - Logs are emitted to stdout with format `%(asctime)s | %(levelname)s | %(name)s | %(message)s`.
 
 ## Pipeline overview
+
+### `metadata` (`.txt` mode: fetch + analyze)
+1. Read repository URLs from the input file (skip blank lines and `#` comments).
+2. For each URL: init or update a bare-mirror clone under `--mirrors-dir`, fetch all refs, create a `*.bundle` file under `--bundles-dir`.
+3. Run the standard metadata pipeline on the populated bundles directory.
+
+### `metadata` (directory mode) / `tokens`
 - For each bundle:
   - Clone into a temporary directory with `GIT_LFS_SKIP_SMUDGE=1`.
   - Select the branch with the most recent commit and check it out.
@@ -127,7 +178,7 @@ Populates `files.allowed_extensions` based on `tree_sitter.extension_language_ma
   - Measure sizes: bundle, `.git`, working tree (on that branch).
   - Detect the license from LICENSE/COPYING files.
   - Count README lines in the repository root.
-  - Run `cloc --json` twice: once unfiltered for `raw_loc`, and once optionally filtered via include_languages/`--include-lang` for `loc` and language distribution.
+  - Run `cloc --json` twice: once unfiltered for `raw_loc`, and once with `--by-file-by-lang` respecting include_languages/`--include-lang` for `loc`, language, and extension distributions.
   - Compute average function length via Tree-sitter on allowed files only.
   - Compute duplication as unique-line share.
 - For tokens:
@@ -142,6 +193,8 @@ Populates `files.allowed_extensions` based on `tree_sitter.extension_language_ma
 - If `transformers` or the tokenizer is absent, token counts remain zero; run `uv add transformers` and set `--tokenizer-id`.
 - Pin `uv.lock` in version control for reproducibility.
 - Ensure `cloc` is on PATH; otherwise, line metrics will be empty.
+- If `metadata` with a `.txt` file fails on a repository, check whether `$GITLAB_TOKEN` / `--gitlab-token` is set for private repos and that the URL is accessible from the machine running the tool.
+- To re-run analysis on already-fetched bundles without re-cloning, pass the bundles directory directly instead of the `.txt` file.
 
 ## Development
 - Build check: `uv run python -m compileall src/repo_metadata_cli`.
